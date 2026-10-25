@@ -1,0 +1,42 @@
+name: build
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build-and-test:
+    name: 构建与测试 (macOS)
+    runs-on: macos-latest
+
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 工具链版本
+        run: |
+          swift --version
+          xcodebuild -version
+
+      - name: 单元测试
+        run: swift test
+
+      - name: 打包 .app
+        run: |
+          chmod +x scripts/build_app.sh
+          ./scripts/build_app.sh release
+
+      - name: 校验产物
+        run: |
+          test -d "dist/滑洲云图.app" || exit 1
+          plutil -lint "dist/滑洲云图.app/Contents/Info.plist"
+          ls -lh dist/
+
+      - name: 上传产物
+        uses: actions/upload-artifact@v4
+        with:
+          name: HuazhouMap-macOS
+          path: dist/HuazhouMap-macOS.zip
+          if-no-files-found: error
