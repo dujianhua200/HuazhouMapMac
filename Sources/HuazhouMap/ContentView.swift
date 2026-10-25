@@ -1,5 +1,6 @@
 import SwiftUI
 import HuazhouCore
+import HuazhouAppCore
 
 struct ContentView: View {
     @EnvironmentObject private var state: AppState
@@ -9,9 +10,10 @@ struct ContentView: View {
             SidebarView()
                 .frame(minWidth: 310, idealWidth: 340, maxWidth: 480)
             MapPane()
-                .frame(minWidth: 480)
+                .frame(minWidth: 420)
         }
-        .frame(minWidth: 980, minHeight: 620)
+        .frame(minWidth: 900, minHeight: 480)
+        .task { state.loadStartupProjectFromCommandLine() }
         .sheet(isPresented: $state.showManualEntry) {
             ManualEntryView()
                 .environmentObject(state)
@@ -38,11 +40,14 @@ struct SidebarView: View {
             .padding(.horizontal, 10)
             .padding(.vertical, 8)
 
-            switch state.sidebarTab {
-            case .points: pointList
-            case .segments: segmentList
-            case .settings: settingsList
+            Group {
+                switch state.sidebarTab {
+                case .points: pointList
+                case .segments: segmentList
+                case .settings: settingsList
+                }
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
 
             Divider()
             actionBar
@@ -204,7 +209,7 @@ struct SidebarView: View {
     }
 
     private var actionBar: some View {
-        VStack(spacing: 8) {
+        VStack(spacing: 6) {
             HStack(spacing: 8) {
                 Button {
                     state.exportDXF()
@@ -219,48 +224,46 @@ struct SidebarView: View {
                     Button("KML（Google Earth/手机）…") { state.exportKML() }
                     Button("GPX（测绘/运动设备）…") { state.exportGPX() }
                 } label: {
-                    Label("其他格式", systemImage: "ellipsis.circle")
+                    Label("格式", systemImage: "ellipsis.circle")
                 }
                 .menuStyle(.borderlessButton)
-                .frame(width: 96)
+                .frame(width: 72)
             }
 
             HStack(spacing: 8) {
                 Button {
                     state.showManualEntry = true
                 } label: {
-                    Label("手动输入", systemImage: "plus.circle")
-                        .frame(maxWidth: .infinity)
+                    Label("手动输入", systemImage: "plus.circle").frame(maxWidth: .infinity)
                 }
 
                 Menu {
                     Button("从 CSV 导入…") { state.importCSV() }
                     Button("从 KML 导入…") { state.importKML() }
                 } label: {
-                    Label("导入", systemImage: "tray.and.arrow.down")
-                        .frame(maxWidth: .infinity)
+                    Label("导入", systemImage: "tray.and.arrow.down").frame(maxWidth: .infinity)
                 }
                 .menuStyle(.borderlessButton)
-            }
 
-            HStack(spacing: 8) {
                 Button {
                     state.deleteSelected()
                 } label: {
-                    Label("删除选中", systemImage: "trash")
-                        .frame(maxWidth: .infinity)
+                    Image(systemName: "trash")
                 }
                 .disabled(state.selection == nil)
+                .help("删除选中点位（⌫）")
 
                 Button {
                     state.clearAll()
                 } label: {
-                    Label("清空", systemImage: "xmark.circle")
+                    Image(systemName: "xmark.circle")
                 }
                 .disabled(state.project.points.isEmpty)
+                .help("清空工程")
             }
         }
-        .padding(12)
+        .padding(10)
+        .layoutPriority(1)
     }
 
     // MARK: - 辅助

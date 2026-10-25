@@ -8,7 +8,7 @@ cd "$ROOT"
 
 APP_NAME="滑洲云图"
 BUNDLE_ID="com.huazhou.map"
-VERSION="1.0.0"
+VERSION="2.0.0"
 BUILD_NUMBER="1"
 MIN_MACOS="13.0"
 

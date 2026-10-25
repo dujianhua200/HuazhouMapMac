@@ -1,13 +1,51 @@
 import SwiftUI
+import AppKit
+import HuazhouAppCore
+
+/// 处理 Finder / `open -a` 传来的工程文件打开事件
+@MainActor
+final class AppDelegate: NSObject, NSApplicationDelegate {
+    private weak var state: AppState?
+    private var pending: [URL] = []
+
+    func attach(_ state: AppState) {
+        self.state = state
+        flush()
+    }
+
+    func application(_ application: NSApplication, open urls: [URL]) {
+        pending.append(contentsOf: urls)
+        flush()
+    }
+
+    private func flush() {
+        guard let state else { return }
+        guard let url = pending.first(where: { $0.pathExtension.lowercased() == "hzmap" }) else {
+            pending = []
+            return
+        }
+        pending = []
+        do {
+            try state.load(from: url)
+        } catch {
+            state.message = "打开失败：\(error.localizedDescription)"
+        }
+    }
+}
 
 @main
 struct HuazhouMapApp: App {
     @StateObject private var state = AppState()
+    @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
 
     var body: some Scene {
         WindowGroup("滑洲云图 Mac") {
             ContentView()
                 .environmentObject(state)
+                .task {
+                    appDelegate.attach(state)
+                    state.loadStartupProjectFromCommandLine()
+                }
         }
         .defaultSize(width: 1220, height: 780)
         .commands {

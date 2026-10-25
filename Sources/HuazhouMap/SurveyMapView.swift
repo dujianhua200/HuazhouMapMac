@@ -1,6 +1,7 @@
 import SwiftUI
 import MapKit
 import HuazhouCore
+import HuazhouAppCore
 
 /// 地图上的测点标注（coordinate 必须可写，才能被拖动）
 final class PointAnnotation: NSObject, MKAnnotation {
@@ -69,7 +70,10 @@ struct SurveyMapView: NSViewRepresentable {
             self.state = state
         }
 
-        /// 单击地图打点；点在已有标注上时不新增
+        private var pendingAdd: DispatchWorkItem?
+
+        /// 单击地图打点；点在已有标注上时不新增。
+        /// 延迟 0.22s 生效：双击缩放时会取消第一次点击，避免一次双击打出两个点。
         @objc func handleClick(_ recognizer: NSClickGestureRecognizer) {
             guard state.addMode, let map = mapView else { return }
             let location = recognizer.location(in: map)
@@ -77,9 +81,18 @@ struct SurveyMapView: NSViewRepresentable {
                 let point = map.convert(annotation.coordinate, toPointTo: map)
                 if hypot(point.x - location.x, point.y - location.y) < 16 { return }
             }
+
+            pendingAdd?.cancel()
             let coordinate = map.convert(location, toCoordinateFrom: map)
-            let wgs84 = state.storageCoordinate(LatLon(latitude: coordinate.latitude, longitude: coordinate.longitude))
-            state.addPoint(at: wgs84)
+            let work = DispatchWorkItem { [weak self] in
+                guard let self else { return }
+                let wgs84 = self.state.storageCoordinate(
+                    LatLon(latitude: coordinate.latitude, longitude: coordinate.longitude)
+                )
+                self.state.addPoint(at: wgs84)
+            }
+            pendingAdd = work
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.22, execute: work)
         }
 
         func sync(_ map: MKMapView, force: Bool) {
