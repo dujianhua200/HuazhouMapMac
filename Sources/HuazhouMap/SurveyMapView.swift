@@ -48,6 +48,7 @@ struct SurveyMapView: NSViewRepresentable {
 
         context.coordinator.mapView = map
         context.coordinator.sync(map, force: true)
+        context.coordinator.publishViewport(map)
         return map
     }
 
@@ -145,9 +146,29 @@ struct SurveyMapView: NSViewRepresentable {
 
             map.removeOverlays(map.overlays.filter { $0 is MKTileOverlay })
             guard enabled, !url.isEmpty else { return }
-            let overlay = MKTileOverlay(urlTemplate: url)
+            let overlay = CachedTileOverlay(urlTemplate: url, cache: state.tileCache)
             overlay.canReplaceMapContent = true
             map.addOverlay(overlay, level: .aboveLabels)
+        }
+
+        /// 把当前视野范围与级别写回状态，供离线下载用
+        func publishViewport(_ map: MKMapView) {
+            let region = map.region
+            let latDelta = region.span.latitudeDelta
+            let lonDelta = region.span.longitudeDelta
+            state.visibleBounds = Bounds(
+                south: max(-85.05, region.center.latitude - latDelta / 2),
+                west: region.center.longitude - lonDelta / 2,
+                north: min(85.05, region.center.latitude + latDelta / 2),
+                east: region.center.longitude + lonDelta / 2
+            )
+            let worldPixels = 256.0 * pow(2.0, Double(state.currentZoom))
+            let width = max(1.0, map.bounds.width)
+            if lonDelta > 0 {
+                let estimated = log2(360.0 * width / (256.0 * lonDelta))
+                _ = worldPixels
+                state.currentZoom = max(1, min(19, Int(estimated.rounded())))
+            }
         }
 
         private func makeSignature() -> String {
@@ -201,6 +222,10 @@ struct SurveyMapView: NSViewRepresentable {
         func mapView(_ mapView: MKMapView, didSelect view: MKAnnotationView) {
             guard let point = view.annotation as? PointAnnotation else { return }
             state.selection = point.pointID
+        }
+
+        func mapView(_ mapView: MKMapView, regionDidChangeAnimated animated: Bool) {
+            publishViewport(mapView)
         }
 
         /// 拖动标注结束后把新位置写回工程

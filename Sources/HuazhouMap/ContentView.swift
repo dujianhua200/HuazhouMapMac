@@ -204,8 +204,70 @@ struct SidebarView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
+
+            Section("离线瓦片缓存") {
+                Text("已缓存 \(state.cacheStats.count) 块 ｜ \(state.cacheStats.sizeText)")
+                    .font(.caption)
+                HStack {
+                    Picker("起", selection: $state.offlineMinZoom) {
+                        ForEach(10...18, id: \.self) { Text("\($0)").tag($0) }
+                    }
+                    .frame(width: 76)
+                    Picker("止", selection: $state.offlineMaxZoom) {
+                        ForEach(10...18, id: \.self) { Text("\($0)").tag($0) }
+                    }
+                    .frame(width: 76)
+                    Spacer()
+                    Text("预计 \(state.estimateVisibleTiles()) 块")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                Button {
+                    Task { await state.downloadVisibleTiles() }
+                } label: {
+                    Label("下载当前视野", systemImage: "arrow.down.circle")
+                        .frame(maxWidth: .infinity)
+                }
+                .disabled(state.downloadProgress != nil || !state.useCustomTiles)
+
+                if let progress = state.downloadProgress {
+                    ProgressView(value: progress.fraction) {
+                        Text("\(progress.done)/\(progress.total)（失败 \(progress.failed)）")
+                            .font(.caption)
+                    }
+                }
+
+                HStack {
+                    Button("刷新统计") { state.refreshCacheStats() }
+                    Button("清空缓存") { state.clearTileCache() }
+                        .disabled(state.cacheStats.count == 0)
+                }
+                .controlSize(.small)
+                Text("缓存目录：\(state.tileCacheRoot.path)")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(2)
+                    .truncationMode(.middle)
+            }
+
+            Section("线路加密（等间距插杆）") {
+                HStack {
+                    TextField("档距 (m)", text: $state.spacingText)
+                        .textFieldStyle(.roundedBorder)
+                        .frame(width: 90)
+                    Button("按此档距插杆") {
+                        state.insertEvenlySpacedPoints(spacing: state.spacingValue ?? 0)
+                    }
+                    .disabled(state.chain.segments.isEmpty)
+                    Spacer()
+                }
+                Text("预计插入 \(state.estimatedInsertCount) 个点（段长不足半个档距的段跳过）")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
         }
         .formStyle(.grouped)
+        .onAppear { state.refreshCacheStats() }
     }
 
     private var actionBar: some View {

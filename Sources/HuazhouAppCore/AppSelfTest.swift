@@ -113,7 +113,37 @@ public enum AppSelfTest {
               importOK && afterImport.count == 5 && Set(afterImport).count == 5,
               afterImport.joined(separator: "/"))
 
-        // 12. 清空
+        // 12. 离线瓦片：规划 + 缓存读写 + 统计
+        state.tileCacheRoot = tmp.appendingPathComponent("tiles")
+        let view = Bounds(centerLat: 32.13, centerLon: 114.08, latSpan: 0.02, lonSpan: 0.02)
+        let plan = TileDownloader.plan(bounds: view, zooms: 14...15)
+        check("离线瓦片规划", !plan.isEmpty && Set(plan).count == plan.count, "\(plan.count) 块（z14-15）")
+
+        var cacheOK = true
+        let testKey = TileKey(z: 14, x: 1, y: 1)
+        do {
+            try state.tileCache.store(Data(repeating: 0x11, count: 512), for: testKey)
+        } catch { cacheOK = false }
+        let hit = state.tileCache.data(for: testKey)?.count ?? 0
+        state.refreshCacheStats()
+        check("瓦片缓存读写与统计", cacheOK && hit == 512 && state.cacheStats.count == 1,
+              "\(state.cacheStats.count) 块 / \(state.cacheStats.sizeText)")
+
+        state.clearTileCache()
+        check("清空瓦片缓存", state.cacheStats.count == 0)
+
+        // 13. 等间距插杆
+        let beforeInsert = state.project.points.count
+        state.spacingText = "200"
+        let estimated = state.estimatedInsertCount
+        let insertedCount = state.insertEvenlySpacedPoints(spacing: 200)
+        let namesAfter = state.project.points.map(\.name)
+        check("等间距插杆",
+              insertedCount == estimated && state.project.points.count == beforeInsert + insertedCount
+                && Set(namesAfter).count == namesAfter.count,
+              "插入 \(insertedCount) 个（预估 \(estimated)），点位 \(beforeInsert)→\(state.project.points.count)")
+
+        // 14. 清空
         state.clearAll()
         check("清空工程彻底重置",
               state.project.points.isEmpty && state.centralMeridianText.isEmpty && state.activeKind == .pole)

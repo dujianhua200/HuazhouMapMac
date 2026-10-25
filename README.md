@@ -7,11 +7,12 @@ macOS 原生通信线路外业工具：**现场打点 → 自动连成杆路 →
 - 需求来源：分析 `奥维地图-SVIP9.exe` 的功能与实现后，聚焦「打点—连杆—出图」主线重写为 macOS 原生程序。
 - [`docs/逆向分析报告.md`](docs/逆向分析报告.md) —— 目标软件的技术栈、功能矩阵、实现原理。
 - [`docs/功能对照与路线图.md`](docs/功能对照与路线图.md) —— **298 个命令 vs 本项目的差距**与优先级路线。
+- [`docs/结构组成分析.md`](docs/结构组成分析.md) —— 深度重做：941 个 RTTI 类、302 个对话框字段、模块分解与数据流。
 - [`docs/测试与修复记录.md`](docs/测试与修复记录.md) —— 下载 CI 产物实测后**发现并修复的 9 个问题**（含 1 个裁切布局 bug、1 个数据丢失 bug、1 个性能问题）。
 
 > 全部代码为原创实现，未复用原程序任何代码或资源。
 
-## 功能（v2.0.1）
+## 功能（v2.1.0）
 
 | 模块 | 说明 |
 |---|---|
@@ -25,6 +26,8 @@ macOS 原生通信线路外业工具：**现场打点 → 自动连成杆路 →
 | 导出 | **DXF R2000**（圆 + 多段线 + 杆号 + 段长，GB18030 不乱码，按类型分图层）、CSV 点表、KML、GPX |
 | 导入 | CSV 点表（有/无表头、经度在前、带引号备注、GB18030）、KML（Point / LineString） |
 | 底图 | Apple 标准/卫星/混合；自定义瓦片模板 + 高德/腾讯/天地图/OSM/本地服务预设 |
+| **离线瓦片** | 本地缓存（`z/x/y.png`）+ 缓存优先读取；按当前视野、指定级别区间一键下载；缓存块数/占用/清空 |
+| **等间距插杆** | 按档距在整条链路上自动插点，插前给出预计数量；距终点不足半档跳过 |
 | 工程 | `.hzmap`（JSON），兼容 v1 工程（缺字段自动补默认值）；Finder 双击或拖到 Dock 图标即可打开，终端 `HuazhouMap 工程.hzmap` 亦可 |
 
 ## 构建与运行
@@ -32,7 +35,7 @@ macOS 原生通信线路外业工具：**现场打点 → 自动连成杆路 →
 要求 macOS 13+、Swift 5.9+（命令行工具即可，不需要完整 Xcode）。
 
 ```bash
-swift test                      # 55 项单元测试（36 核心 + 19 状态机/自检）
+swift test                      # 70 项单元测试（47 核心 + 23 状态机/自检）
 ./scripts/build_app.sh release  # 打包，产物在 dist/
 open "dist/滑洲云图.app"
 
@@ -50,9 +53,9 @@ open "dist/滑洲云图.app"
 
 `.github/workflows/build.yml`：push / PR / 手动触发时在 `macos-latest` 上
 
-1. `swift test`（55 项：大地线、投影正反算、纠偏、几何量算、成链、DXF、CSV/KML 导入导出、工程文件，以及 18 项 AppState 端到端：打点/改位/删除/导入合并/导出落盘/保存后重读）
+1. `swift test`（70 项：大地线、投影正反算、纠偏、几何量算、成链、DXF、CSV/KML 导入导出、工程文件，以及 18 项 AppState 端到端：打点/改位/删除/导入合并/导出落盘/保存后重读）
 2. `./scripts/build_app.sh release` 打包 `.app`
-3. **跑打包产物的 `--self-test`**（15 项：打点/成链/改位/中央子午线/保存重开/四种导出/导入改号/清空）
+3. **跑打包产物的 `--self-test`**（19 项：打点/成链/改位/中央子午线/保存重开/四种导出/导入改号/离线瓦片规划与缓存/等间距插杆/清空）
 4. 校验 `Info.plist` 并上传 `HuazhouMap-macOS.zip`
 
 ## 目录
@@ -70,6 +73,8 @@ Sources/HuazhouCore/          纯逻辑库（可单测，无 UI 依赖）
   DXFWriter.swift             DXF R2000 生成（GB18030、分图层）
   CSVWriter.swift             点表导出
   KMLGPXWriter.swift          KML / GPX 导出
+  TileCache.swift             离线瓦片：Web Mercator 换算 / 本地缓存 / 批量下载
+  RoutePlanner.swift          等间距插杆（线路加密）
   Importers.swift             CSV / KML 导入
   SurveyProject.swift         工程模型（Codable，向前兼容）
 Sources/HuazhouAppCore/       可测的应用状态机（不含视图）

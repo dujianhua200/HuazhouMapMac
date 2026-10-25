@@ -80,6 +80,40 @@ public final class AppState: ObservableObject {
     @Published public var message = "点击地图打点，或 ⌘⇧P 手动输入坐标"
     @Published public var showManualEntry = false
 
+    // MARK: 离线瓦片
+    @Published public var tileCacheRoot = TileCache.defaultRoot
+    @Published public var cacheStats = CacheStats(count: 0, bytes: 0)
+    @Published public var downloadProgress: DownloadProgress?
+    @Published public var offlineMinZoom = 12
+    @Published public var offlineMaxZoom = 16
+    @Published public var visibleBounds: Bounds?
+    /// 地图当前级别（由地图回调写入，用于「按当前级别」下载）
+    @Published public var currentZoom = 14
+    /// 等间距插杆的档距输入
+    @Published public var spacingText = "100"
+
+    public var spacingValue: Double? {
+        Double(spacingText.trimmingCharacters(in: .whitespaces))
+    }
+
+    public var estimatedInsertCount: Int {
+        guard let spacing = spacingValue, spacing > 0 else { return 0 }
+        return RoutePlanner.estimatedInsertCount(chain: chain, spacing: spacing)
+    }
+
+    public struct CacheStats: Equatable, Sendable {
+        public var count: Int
+        public var bytes: Int
+        public init(count: Int, bytes: Int) {
+            self.count = count
+            self.bytes = bytes
+        }
+        public var sizeText: String {
+            let mb = Double(bytes) / 1024 / 1024
+            return mb >= 1 ? String(format: "%.1f MB", mb) : String(format: "%.1f KB", Double(bytes) / 1024)
+        }
+    }
+
     public private(set) var currentFileURL: URL?
 
     public init(project: SurveyProject = SurveyProject()) {
@@ -192,6 +226,91 @@ public final class AppState: ObservableObject {
     }
 
     public func newProject() { clearAll() }
+
+    // MARK: - 离线瓦片
+
+    public var tileCache: TileCache { TileCache(root: tileCacheRoot) }
+
+    public func refreshCacheStats() {
+        let stats = tileCache.stats()
+        cacheStats = CacheStats(count: stats.count, bytes: stats.bytes)
+    }
+
+    public func clearTileCache() {
+        do {
+            try tileCache.clear()
+            refreshCacheStats()
+            message = "已清空本地瓦片缓存"
+        } catch {
+            message = "清空失败：\(error.localizedDescription)"
+        }
+    }
+
+    /// 估算当前视野按所选级别需要下载多少瓦片
+    public func estimateVisibleTiles() -> Int {
+        guard let bounds = visibleBounds else { return 0 }
+        let range = min(offlineMinZoom, offlineMaxZoom)...max(offlineMinZoom, offlineMaxZoom)
+        return range.reduce(0) { $0 + WebMercator.tileCount(bounds.inflated(by: 0.0005), zoom: $1) }
+    }
+
+    /// 下载当前视野的瓦片到本地缓存
+    public func downloadVisibleTiles() async {
+        guard let bounds = visibleBounds else {
+            message = "地图尚未就绪，稍后再试"
+            return
+        }
+        guard useCustomTiles, !customTileURL.isEmpty else {
+            message = "请先在设置里启用自定义瓦片并填写 URL 模板"
+            return
+        }
+        let range = min(offlineMinZoom, offlineMaxZoom)...max(offlineMinZoom, offlineMaxZoom)
+        let keys = TileDownloader.plan(bounds: bounds.inflated(by: 0.0005), zooms: range)
+        guard !keys.isEmpty else {
+            message = "当前视野没有可下载的瓦片"
+            return
+        }
+
+        downloadProgress = DownloadProgress(done: 0, total: keys.count, failed: 0)
+        let result = await TileDownloader.download(
+            keys: keys,
+            template: customTileURL,
+            cache: tileCache
+        ) { [weak self] progress in
+            Task { @MainActor in self?.downloadProgress = progress }
+        }
+        downloadProgress = nil
+        refreshCacheStats()
+        message = "离线下载完成：新增 \(result.ok)，已存在 \(result.skipped)，失败 \(result.failed)"
+    }
+
+    // MARK: - 等间距插杆
+
+    /// 按档距在整条链路上插入中间点，返回插入数量
+    @discardableResult
+    public func insertEvenlySpacedPoints(spacing: Double, kind: ObjectKind = .pole) -> Int {
+        let chain = self.chain
+        guard chain.segments.count >= 1 else {
+            message = "至少需要两个点才能插杆"
+            return 0
+        }
+        guard spacing >= 1 else {
+            message = "档距需不小于 1 米"
+            return 0
+        }
+        let inserted = RoutePlanner.densify(chain: chain, spacing: spacing, kind: kind)
+        guard !inserted.isEmpty else {
+            message = "当前档距下没有可插入的点（段长不足）"
+            return 0
+        }
+        // 避免与现有点名冲突
+        var points = inserted
+        for i in points.indices where project.points.contains(where: { $0.name == points[i].name }) {
+            points[i].name = project.nextPointName(for: points[i].kind)
+        }
+        project.points.append(contentsOf: points)
+        message = String(format: "已按 %.0f m 档距插入 %d 个点", spacing, points.count)
+        return points.count
+    }
 
     /// 从命令行参数打开工程（终端里 `HuazhouMap 工程.hzmap` 启动即载入）
     public func loadStartupProjectFromCommandLine() {

@@ -296,6 +296,61 @@ struct AppStateTests {
         #expect(abs(restored.longitude - p.longitude) < 1e-8)
     }
 
+    @Test("等间距插杆：数量与预估一致、点名不冲突")
+    func insertSpacing() {
+        let state = makeState()
+        state.addPoint(at: LatLon(latitude: 32.1300, longitude: 114.0800))
+        state.addPoint(at: LatLon(latitude: 32.1300, longitude: 114.0906)) // 约 1000 m
+        state.spacingText = "100"
+        let estimated = state.estimatedInsertCount
+        #expect(estimated == 9)
+
+        let inserted = state.insertEvenlySpacedPoints(spacing: 100)
+        #expect(inserted == 9)
+        #expect(state.project.points.count == 11)
+        let names = state.project.points.map(\.name)
+        #expect(Set(names).count == names.count, "插入后点名重复：\(names)")
+    }
+
+    @Test("档距过大时不插点，并给出提示")
+    func insertSpacingTooLarge() {
+        let state = makeState()
+        state.addPoint(at: LatLon(latitude: 32.13, longitude: 114.0800))
+        state.addPoint(at: LatLon(latitude: 32.13, longitude: 114.0805))
+        let inserted = state.insertEvenlySpacedPoints(spacing: 1000)
+        #expect(inserted == 0)
+        #expect(state.message.contains("没有可插入"))
+    }
+
+    @Test("离线瓦片：缓存统计与清空")
+    func tileCacheStats() throws {
+        let state = makeState()
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("hzstate-tiles-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: root) }
+        state.tileCacheRoot = root
+
+        try state.tileCache.store(Data(repeating: 0, count: 2048), for: TileKey(z: 5, x: 1, y: 1))
+        state.refreshCacheStats()
+        #expect(state.cacheStats.count == 1)
+        #expect(state.cacheStats.bytes >= 2048)
+
+        state.clearTileCache()
+        #expect(state.cacheStats.count == 0)
+    }
+
+    @Test("离线瓦片：按当前视野估算数量")
+    func estimateVisibleTiles() {
+        let state = makeState()
+        #expect(state.estimateVisibleTiles() == 0) // 无视野
+        state.visibleBounds = Bounds(centerLat: 32.13, centerLon: 114.08, latSpan: 0.02, lonSpan: 0.02)
+        state.offlineMinZoom = 14
+        state.offlineMaxZoom = 15
+        let count = state.estimateVisibleTiles()
+        #expect(count > 0)
+        #expect(count == WebMercator.tileCount(state.visibleBounds!.inflated(by: 0.0005), zoom: 14)
+                        + WebMercator.tileCount(state.visibleBounds!.inflated(by: 0.0005), zoom: 15))
+    }
+
     @Test("应用自检脚本全部通过（与打包产物 --self-test 同一套逻辑）")
     func selfTestPasses() {
         let steps = AppSelfTest.run()
