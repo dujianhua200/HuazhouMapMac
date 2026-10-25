@@ -76,15 +76,17 @@ public enum DXFWriter {
         emit(3, "Solid line"); emit(72, "65"); emit(73, "0"); emit(40, "0.0")
         emit(0, "ENDTAB")
 
-        let layers: [(String, Int)] = [
+        var layerColors: [(String, Int)] = [
             ("0", 7),
-            (Layer.pole, 3),
             (Layer.poleName, 7),
             (Layer.route, 1),
             (Layer.lengthLabel, 4),
         ]
-        emit(0, "TABLE"); emit(2, "LAYER"); emit(70, String(layers.count))
-        for (name, color) in layers {
+        for kind in ObjectKind.allCases {
+            layerColors.append((kind.layerName, colorIndex(for: kind)))
+        }
+        emit(0, "TABLE"); emit(2, "LAYER"); emit(70, String(layerColors.count))
+        for (name, color) in layerColors {
             emit(0, "LAYER"); emit(2, name); emit(70, "0")
             emit(62, String(color)); emit(6, "CONTINUOUS")
         }
@@ -120,7 +122,7 @@ public enum DXFWriter {
         for point in chain.orderedPoints {
             let plan = projector.project(point.coordinate).plan
             emit(0, "CIRCLE"); emit(5, nextHandle())
-            emit(100, "AcDbEntity"); emit(8, Layer.pole)
+            emit(100, "AcDbEntity"); emit(8, point.kind.layerName)
             emit(100, "AcDbCircle")
             emit(10, num(plan.easting)); emit(20, num(plan.northing)); emit(30, "0.0")
             emit(40, num(radius))
@@ -176,6 +178,19 @@ public enum DXFWriter {
             String(char).data(using: encoding) == nil ? "?" : char
         }
         return String(sanitized).data(using: encoding) ?? Data(text.utf8)
+    }
+
+    /// AutoCAD 颜色索引，按对象类型区分
+    private static func colorIndex(for kind: ObjectKind) -> Int {
+        switch kind {
+        case .pole: return 3      // 绿
+        case .manhole: return 5   // 蓝
+        case .joint: return 6     // 洋红
+        case .marker: return 2    // 黄
+        case .crossing: return 4  // 青
+        case .station: return 1   // 红
+        case .other: return 8     // 灰
+        }
     }
 
     public static func writeFile(points: [SurveyPoint], chain: ChainResult, options: DXFExportOptions, to url: URL) throws {

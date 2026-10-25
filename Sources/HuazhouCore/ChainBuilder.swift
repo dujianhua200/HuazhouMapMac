@@ -1,25 +1,45 @@
 import Foundation
 
-/// 现场测点（默认即电杆/标定点）
+/// 现场测点
 public struct SurveyPoint: Identifiable, Codable, Hashable, Sendable {
     public var id: UUID
     public var name: String
     public var coordinate: LatLon
     public var note: String
+    public var kind: ObjectKind
 
-    public init(id: UUID = UUID(), name: String, coordinate: LatLon, note: String = "") {
+    public init(
+        id: UUID = UUID(),
+        name: String,
+        coordinate: LatLon,
+        note: String = "",
+        kind: ObjectKind = .pole
+    ) {
         self.id = id
         self.name = name
         self.coordinate = coordinate
         self.note = note
+        self.kind = kind
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case id, name, coordinate, note, kind
+    }
+
+    /// 旧版工程文件没有 kind 字段，解码时回落为电杆
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(UUID.self, forKey: .id)
+        name = try container.decode(String.self, forKey: .name)
+        coordinate = try container.decode(LatLon.self, forKey: .coordinate)
+        note = try container.decodeIfPresent(String.self, forKey: .note) ?? ""
+        kind = try container.decodeIfPresent(ObjectKind.self, forKey: .kind) ?? .pole
     }
 }
 
 /// 连成一条链路的排序策略
 public enum ChainMode: String, Codable, CaseIterable, Sendable {
-    /// 按打点顺序连线
     case sequential
-    /// 从首个点出发，贪心最近邻成链（适合野外乱序打点）
     case nearestNeighbor
 
     public var displayName: String {
@@ -32,17 +52,13 @@ public enum ChainMode: String, Codable, CaseIterable, Sendable {
 
 public struct ChainSegment: Identifiable, Sendable {
     public var id: Int { index }
-    /// 段号，从 1 开始
     public let index: Int
     public let fromName: String
     public let toName: String
     public let start: LatLon
     public let end: LatLon
-    /// 段长（米）
     public let length: Double
-    /// 起点到终点方位角（度）
     public let azimuth: Double
-    /// 累计长度（米）
     public let cumulative: Double
 
     public var azimuthText: String {
@@ -51,7 +67,6 @@ public struct ChainSegment: Identifiable, Sendable {
 }
 
 public struct ChainResult: Sendable {
-    /// 排序后的点位
     public let orderedPoints: [SurveyPoint]
     public let segments: [ChainSegment]
     public let totalLength: Double
@@ -65,7 +80,6 @@ public struct ChainResult: Sendable {
 
 public enum ChainBuilder {
 
-    /// 按模式排出点位顺序
     public static func order(_ points: [SurveyPoint], mode: ChainMode) -> [SurveyPoint] {
         switch mode {
         case .sequential:
@@ -108,14 +122,9 @@ public enum ChainBuilder {
             cumulative += sol.distance
             segments.append(
                 ChainSegment(
-                    index: i,
-                    fromName: a.name,
-                    toName: b.name,
-                    start: a.coordinate,
-                    end: b.coordinate,
-                    length: sol.distance,
-                    azimuth: sol.initialAzimuth,
-                    cumulative: cumulative
+                    index: i, fromName: a.name, toName: b.name,
+                    start: a.coordinate, end: b.coordinate,
+                    length: sol.distance, azimuth: sol.initialAzimuth, cumulative: cumulative
                 )
             )
         }

@@ -4,47 +4,51 @@ macOS 原生通信线路外业工具：**现场打点 → 自动连成杆路 →
 
 纯 Swift / SwiftUI / MapKit，**零第三方依赖**，`swift build` 直出 `.app`，GitHub Actions 自动测试并产出安装包。
 
-> 需求来源：分析 `奥维地图-SVIP9.exe` 的功能与实现后，只保留「打点—连杆—出图」这条主线，重写为 macOS 原生程序。
-> 分析过程与结论见 [`docs/逆向分析报告.md`](docs/逆向分析报告.md)。全部代码为原创实现，未复用原程序任何代码或资源。
+- 需求来源：分析 `奥维地图-SVIP9.exe` 的功能与实现后，聚焦「打点—连杆—出图」主线重写为 macOS 原生程序。
+- [`docs/逆向分析报告.md`](docs/逆向分析报告.md) —— 目标软件的技术栈、功能矩阵、实现原理。
+- [`docs/功能对照与路线图.md`](docs/功能对照与路线图.md) —— **298 个命令 vs 本项目的差距**与优先级路线。
 
-## 功能
+> 全部代码为原创实现，未复用原程序任何代码或资源。
+
+## 功能（v2）
 
 | 模块 | 说明 |
 |---|---|
-| 打点 | 地图单击即落点，自动命名 `G001…`，可改点名/备注 |
-| 成链 | 「按打点顺序」或「自动最近邻成链」（野外乱序打点后自动排成一条杆路） |
-| 距离 | Vincenty 椭球大地线，逐段长度 / 累计长度 / 方位角 + 象限角（如 `北偏东 34°33'`） |
-| 坐标系 | 高斯-克吕格 3°带 / 6°带（自动分带或指定中央子午线）、本地平面（以首点为原点）、经纬度 |
-| 出图 | DXF R2000，图层：`电杆`(圆) / `杆号`(文字) / `线路`(多段线) / `段长标注`(文字)，GB18030 编码不乱码 |
-| 点表 | CSV（UTF-8 BOM，Excel 直接打开），含经纬度、N/E 坐标、段长、累计、方位角、备注 |
-| 工程 | `.hzmap`（JSON），可保存/打开 |
-| 底图 | 标准 / 卫星 / 卫星混合，或填自己的瓦片服务 URL 模板 |
+| 打点 | 地图单击落点；**手动输入经纬度**（支持粘贴 `32.1301, 114.0814`）；自动编号按类型给前缀（电杆 G、人孔 R、接头盒 J…） |
+| 对象类型 | 电杆 / 人孔 / 接头盒 / 标石 / 跨越点 / 机房 / 其他；按类型配色、DXF 分图层 |
+| 编辑 | 拖动标注改位、改点名、切类型、删除、清空 |
+| 成链 | 「按打点顺序」或「自动最近邻成链」（野外乱序打点后自动排序） |
+| 距离 | Vincenty 椭球大地线；逐段长度 / 累计 / 平均 / 总长 / 方位角 + 象限角；**闭合面积** |
+| 坐标系 | 高斯-克吕格 3°带 / 6°带（自动分带或指定中央子午线）、本地平面、经纬度 |
+| 纠偏 | WGS84 ↔ GCJ-02 正反算；显示层纠偏开关，对齐高德/腾讯瓦片（数据始终存 WGS84） |
+| 导出 | **DXF R2000**（圆 + 多段线 + 杆号 + 段长，GB18030 不乱码，按类型分图层）、CSV 点表、KML、GPX |
+| 导入 | CSV 点表（有/无表头、经度在前、带引号备注、GB18030）、KML（Point / LineString） |
+| 底图 | Apple 标准/卫星/混合；自定义瓦片模板 + 高德/腾讯/天地图/OSM/本地服务预设 |
+| 工程 | `.hzmap`（JSON），兼容 v1 工程（缺字段自动补默认值） |
 
 ## 构建与运行
 
 要求 macOS 13+、Swift 5.9+（命令行工具即可，不需要完整 Xcode）。
 
 ```bash
-# 跑测试
-swift test
-
-# 编译并打包成 .app（产物在 dist/）
-./scripts/build_app.sh release
-
-# 启动
+swift test                      # 36 项单元测试
+./scripts/build_app.sh release  # 打包，产物在 dist/
 open "dist/滑洲云图.app"
 ```
 
-> 本机若只装了 Command Line Tools，SwiftPM 的沙箱可能被系统拒绝，此时加 `--disable-sandbox`：
-> `swift build --disable-sandbox` / `swift test --disable-sandbox`。
+**只装了 Command Line Tools 时**（本机就是这种情况）需要两处额外处理：
+
+1. SwiftPM 沙箱会被系统拒绝 → 加 `--disable-sandbox`：`swift build --disable-sandbox`。
+2. `@State` 在新 SDK 里是宏（`SwiftUIMacros`），CLT 缺少该插件 → 本项目统一用 `@StateObject` + `@Published`，**不要用 `@State`**。
+3. 首次 `swift test` 可能报 `TestingMacros ... plugin not found`（增量构建问题），**再跑一次即可**。
 
 ## GitHub Actions
 
 `.github/workflows/build.yml`：push / PR / 手动触发时在 `macos-latest` 上
 
-1. `swift test`（23 项单元测试：大地线、投影正反算、成链、DXF、CSV、工程文件）
+1. `swift test`（36 项：大地线、投影正反算、纠偏、几何量算、成链、DXF、CSV/KML 导入导出、工程文件）
 2. `./scripts/build_app.sh release` 打包 `.app`
-3. 校验 `Info.plist` 并上传 `HuazhouMap-macOS.zip` 为构建产物
+3. 校验 `Info.plist` 并上传 `HuazhouMap-macOS.zip`
 
 ## 目录
 
@@ -54,36 +58,44 @@ Sources/HuazhouCore/          纯逻辑库（可单测，无 UI 依赖）
   Geodesy.swift               Vincenty 反解、方位角、象限角
   TransverseMercator.swift    高斯-克吕格正反算（Snyder 级数）+ 分带
   Projection.swift            出图坐标系选择与批量投影
+  CoordinateCorrection.swift  GCJ-02 正反算（纠偏）
+  ObjectKind.swift            对象类型与图层/前缀
   ChainBuilder.swift          成链策略与分段统计
-  DXFWriter.swift             DXF R2000 生成（GB18030）
+  Geometry.swift              折线长度、多边形面积、点在面内
+  DXFWriter.swift             DXF R2000 生成（GB18030、分图层）
   CSVWriter.swift             点表导出
-  SurveyProject.swift         工程模型（Codable）
+  KMLGPXWriter.swift          KML / GPX 导出
+  Importers.swift             CSV / KML 导入
+  SurveyProject.swift         工程模型（Codable，向前兼容）
 Sources/HuazhouMap/           macOS 界面
-  AppState.swift              状态与文件/导出动作
-  SurveyMapView.swift         MKMapView 封装（点击打点、标注、多段线、自定义瓦片）
-  ContentView.swift           侧栏（点位/分段/设置）+ 地图 + 状态栏
-Tests/HuazhouCoreTests/       单元测试
-docs/逆向分析报告.md           目标软件的功能与原理分析
+  AppState.swift              状态、文件、导入导出、纠偏
+  SurveyMapView.swift         MKMapView 封装（打点、拖动、标注、多段线、自定义瓦片）
+  ContentView.swift           侧栏（点位/分段/设置）+ 地图 + 状态栏 + 手动输入表单
+Tests/HuazhouCoreTests/       36 项单元测试
+docs/                         逆向分析报告 + 功能对照与路线图
 ```
 
 ## DXF 使用说明
 
-- **坐标约定**：DXF 的 `X = 东坐标(easting)`，`Y = 北坐标(northing)` —— 与 CAD 图纸习惯一致（注意：测绘习惯写作 `X=北, Y=东`，本项目在界面与 CSV 里用 `N/E` 标明，避免混淆）。
-- **带号**：东坐标只含 500000 伪偏移，**不加带号前缀**（否则图形会整体偏移 3800 万米）。带号只在界面/CSV 里提示。
-- **符号尺寸**：杆符号半径默认 0.5 m、文字高 1.5 m，出 1:500 图约 1 mm / 3 mm，可在「设置」里改。
-- 打开后如看到图很小/很大，先 `ZOOM E` 或检查插入单位（文件已写 `$INSUNITS = 6` 即米）。
+- **坐标约定**：DXF 的 `X = 东坐标(easting)`，`Y = 北坐标(northing)`（与 CAD 图纸一致；测绘习惯写作 `X=北, Y=东`，本项目界面与 CSV 用 `N/E` 标明）。
+- **带号**：东坐标只含 500000 伪偏移，**不加带号前缀**（否则图形整体偏 3800 万米）。带号只在界面提示。
+- **图层**：按对象类型分层（电杆/人孔/接头盒/标石/跨越点/机房/其他）+ `线路` + `杆号` + `段长标注`。
+- **符号尺寸**：杆符号半径默认 0.5 m、文字高 1.5 m，出 1:500 图约 1 mm / 3 mm，可在「设置」改。
 
 ## 已知限制
 
-- 底图用 Apple 地图，国内显示与坐标偏移由系统处理；不提供离线瓦片下载（瓦片版权原因），需要自有离线源时用「自定义瓦片 URL」。
-- 只导 DXF，不读写 DWG（DWG 为封闭格式）。
-- 打点目前只有「地图单击」一种录入方式，未做 GPS 实时采集与照片附件。
+- 无离线瓦片缓存、无图片附件、无 GPS 采集、无轨迹记录、无云同步（见路线图 P0/P1）。
+- 只写 DXF，不读 DWG；DXF 只导出，不导入（P0 计划补）。
+- 底图默认走 Apple 地图；国内第三方瓦片需自备源并开启纠偏。
 
 ## 手动自测清单
 
-1. 启动 → 地图定位到信阳（32.1301, 114.0814）。
-2. 在空地上点 4 下 → 左侧出现 G001~G004，红色多段线连起来，状态栏显示总长。
-3. 切「分段」→ 每段有长度、累计、方位角。
-4. 切「设置」→ 坐标系选 3°带，中央子午线留空 → 显示「第 38 带，中央子午线 114°」。
-5. ⌘E 导出 DXF → 用 CAD/CASS 打开，`ZOOM E` 应看到 4 个圆 + 杆号 + 线路 + 段长。
-6. ⌘S 保存 `.hzmap`，⌘O 重新打开，点位与设置不丢。
+1. 启动 → 地图定位信阳（32.1301, 114.0814）。
+2. 点 4 下 → G001~G004，红色多段线连通，状态栏显示总长与闭合面积。
+3. 拖动任一标注 → 段长、方位角、面积实时变化。
+4. `⌘⇧P` 手动输入 `32.1301` / `114.0914` → 新点插入列表。
+5. 「导入 ▾ → 从 CSV 导入」选一份 `点名,纬度,经度` 表 → 点名/备注保留。
+6. 设置里切「高斯-克吕格 3 度带」→ 显示「第 38 带，中央子午线 114°」。
+7. `⌘E` 导出 DXF → CAD/CASS 打开 `ZOOM E`，应见按类型分层的圆 + 杆号 + 线路 + 段长。
+8. 「其他格式 ▾」导出 KML → Google Earth/手机地图能打开且位置正确。
+9. `⌘S` 保存 `.hzmap`，`⌘O` 重开，点位与设置不丢。
