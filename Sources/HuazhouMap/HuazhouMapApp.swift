@@ -13,6 +13,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         flush()
     }
 
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        guard CommandLine.arguments.contains("--self-test") else { return }
+        let ok = AppSelfTest.runAndReport { line in
+            FileHandle.standardOutput.write(Data((line + "\n").utf8))
+        }
+        exit(ok ? 0 : 1)
+    }
+
     func application(_ application: NSApplication, open urls: [URL]) {
         pending.append(contentsOf: urls)
         flush()

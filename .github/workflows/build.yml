@@ -28,6 +28,20 @@ jobs:
           chmod +x scripts/build_app.sh
           ./scripts/build_app.sh release
 
+      - name: 应用自检（跑打包后的真实二进制）
+        run: |
+          BIN="dist/滑洲云图.app/Contents/MacOS/HuazhouMap"
+          ("$BIN" --self-test > selftest.log 2>&1; echo $? > selftest.code) &
+          PID=$!
+          for i in $(seq 1 90); do
+            [ -f selftest.code ] && break
+            sleep 1
+          done
+          kill "$PID" 2>/dev/null || true
+          cat selftest.log
+          test -f selftest.code || { echo "自检未在 90 秒内结束"; exit 1; }
+          test "$(cat selftest.code)" = "0"
+
       - name: 校验产物
         run: |
           test -d "dist/滑洲云图.app" || exit 1

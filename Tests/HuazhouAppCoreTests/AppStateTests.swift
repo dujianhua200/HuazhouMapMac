@@ -295,4 +295,12 @@ struct AppStateTests {
         #expect(abs(restored.latitude - p.latitude) < 1e-8)
         #expect(abs(restored.longitude - p.longitude) < 1e-8)
     }
+
+    @Test("应用自检脚本全部通过（与打包产物 --self-test 同一套逻辑）")
+    func selfTestPasses() {
+        let steps = AppSelfTest.run()
+        let failed = steps.filter { !$0.ok }
+        #expect(failed.isEmpty, "失败项：\(failed.map { "\($0.name)（\($0.detail)）" }.joined(separator: "; "))")
+        #expect(steps.count >= 15)
+    }
 }

@@ -11,7 +11,7 @@ macOS 原生通信线路外业工具：**现场打点 → 自动连成杆路 →
 
 > 全部代码为原创实现，未复用原程序任何代码或资源。
 
-## 功能（v2.0.0）
+## 功能（v2.0.1）
 
 | 模块 | 说明 |
 |---|---|
@@ -32,9 +32,12 @@ macOS 原生通信线路外业工具：**现场打点 → 自动连成杆路 →
 要求 macOS 13+、Swift 5.9+（命令行工具即可，不需要完整 Xcode）。
 
 ```bash
-swift test                      # 54 项单元测试（36 核心 + 18 状态机）
+swift test                      # 55 项单元测试（36 核心 + 19 状态机/自检）
 ./scripts/build_app.sh release  # 打包，产物在 dist/
 open "dist/滑洲云图.app"
+
+# 无头自检：直接跑打包后的二进制，验证打点/成链/存储/四种导出/导入/清空
+"dist/滑洲云图.app/Contents/MacOS/HuazhouMap" --self-test
 ```
 
 **只装了 Command Line Tools 时**（本机就是这种情况）需要两处额外处理：
@@ -47,9 +50,10 @@ open "dist/滑洲云图.app"
 
 `.github/workflows/build.yml`：push / PR / 手动触发时在 `macos-latest` 上
 
-1. `swift test`（54 项：大地线、投影正反算、纠偏、几何量算、成链、DXF、CSV/KML 导入导出、工程文件，以及 18 项 AppState 端到端：打点/改位/删除/导入合并/导出落盘/保存后重读）
+1. `swift test`（55 项：大地线、投影正反算、纠偏、几何量算、成链、DXF、CSV/KML 导入导出、工程文件，以及 18 项 AppState 端到端：打点/改位/删除/导入合并/导出落盘/保存后重读）
 2. `./scripts/build_app.sh release` 打包 `.app`
-3. 校验 `Info.plist` 并上传 `HuazhouMap-macOS.zip`
+3. **跑打包产物的 `--self-test`**（15 项：打点/成链/改位/中央子午线/保存重开/四种导出/导入改号/清空）
+4. 校验 `Info.plist` 并上传 `HuazhouMap-macOS.zip`
 
 ## 目录
 
@@ -74,7 +78,7 @@ Sources/HuazhouMap/           macOS 界面
   SurveyMapView.swift         MKMapView 封装（打点、拖动、标注、多段线、自定义瓦片）
   ContentView.swift           侧栏（点位/分段/设置）+ 地图 + 状态栏 + 手动输入表单
 Tests/HuazhouCoreTests/       36 项核心算法测试
-Tests/HuazhouAppCoreTests/    18 项状态机端到端测试
+Tests/HuazhouAppCoreTests/    19 项状态机端到端测试 + 自检
 docs/                         逆向分析报告 + 功能对照与路线图
 ```
 
